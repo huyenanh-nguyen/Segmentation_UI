@@ -30,32 +30,26 @@ class ND2Viewer(tk.Tk):
         # --------------------------------
 
         self.vmin = 0
-        self.vmax = 255
+        self.vmax = 900
+
+        # Maximum allowed vmax
+        self.vmax_limit = 100000
 
         # --------------------------------
         # Dark frame storage
         # --------------------------------
 
-        # Dictionary:
-        #
-        # channel number -> dark frame path
-        #
+        # Channel -> darkframe path
         self.darkframes = {}
 
-        # Dictionary:
-        #
-        # channel number -> BooleanVar
-        #
+        # Channel -> BooleanVar
         self.darkframe_enabled = {}
 
-        # Dictionary:
-        #
-        # channel number -> button
-        #
+        # Channel -> Button
         self.darkframe_buttons = {}
 
         # --------------------------------
-        # ROW 1: Upload button
+        # Upload ND2
         # --------------------------------
 
         self.upload_button = tk.Button(
@@ -83,28 +77,39 @@ class ND2Viewer(tk.Tk):
         # Image display
         # --------------------------------
 
-        self.image_label = tk.Label(
+        self.image_frame = tk.Frame(
             self,
+            width=750,
+            height=520
+        )
+
+        self.image_frame.pack(
+            padx=10,
+            pady=10
+        )
+
+        # Prevent frame from resizing
+        self.image_frame.pack_propagate(False)
+
+        self.image_label = tk.Label(
+            self.image_frame,
             text="No image loaded"
         )
 
         self.image_label.pack(
-            expand=True,
-            padx=10,
-            pady=10
+            expand=True
         )
 
         # --------------------------------
         # Mouse wheel controls
         # --------------------------------
 
-        # Windows / Linux
         self.image_label.bind(
             "<MouseWheel>",
             self.mouse_wheel
         )
 
-        # Mac
+        # Mac trackpad / mouse
         self.image_label.bind(
             "<Button-4>",
             self.scroll_up
@@ -135,7 +140,9 @@ class ND2Viewer(tk.Tk):
             command=self.update_image
         )
 
-        self.channel_slider.pack(pady=5)
+        self.channel_slider.pack(
+            pady=3
+        )
 
         # --------------------------------
         # Time slider
@@ -157,21 +164,25 @@ class ND2Viewer(tk.Tk):
             command=self.update_image
         )
 
-        self.time_slider.pack(pady=5)
+        self.time_slider.pack(
+            pady=3
+        )
 
         # --------------------------------
-        # Intensity window information
+        # Window information
         # --------------------------------
 
         self.window_label = tk.Label(
             self,
-            text="Window: vmin = 0 | vmax = 255"
+            text="Window: vmin = 0 | vmax = 5000"
         )
 
-        self.window_label.pack(pady=5)
+        self.window_label.pack(
+            pady=5
+        )
 
         # --------------------------------
-        # DARK FRAME SECTION
+        # Dark frame section
         # --------------------------------
 
         self.darkframe_frame = tk.LabelFrame(
@@ -220,15 +231,21 @@ class ND2Viewer(tk.Tk):
         # Create segmentation object
         # --------------------------------
 
-        self.segmentation = Segementation(file_path)
+        self.segmentation = Segementation(
+            file_path
+        )
 
         # --------------------------------
         # Convert ND2 → NumPy
         # --------------------------------
 
-        data = self.segmentation.convert_nd2_to_array()
+        data = (
+            self.segmentation
+            .convert_nd2_to_array()
+        )
 
         print("Array shape:", data.shape)
+        print("Data type:", data.dtype)
 
         # --------------------------------
         # Check dimensions
@@ -249,8 +266,13 @@ class ND2Viewer(tk.Tk):
         time_length = data.shape[0]
         channel_length = data.shape[1]
 
-        print(f"Time points: {time_length}")
-        print(f"Channels: {channel_length}")
+        print(
+            f"Time points: {time_length}"
+        )
+
+        print(
+            f"Channels: {channel_length}"
+        )
 
         # --------------------------------
         # Configure channel slider
@@ -270,7 +292,6 @@ class ND2Viewer(tk.Tk):
             to=time_length - 1
         )
 
-        # Reset sliders
         self.channel_slider.set(0)
         self.time_slider.set(0)
 
@@ -283,26 +304,11 @@ class ND2Viewer(tk.Tk):
         )
 
         # --------------------------------
-        # Initial intensity window
+        # Set intensity window
         # --------------------------------
 
-        first_image = data[0, 0].astype(
-            np.float32
-        )
-
-        self.vmin = float(
-            first_image.min()
-        )
-
-        self.vmax = float(
-            first_image.max()
-        )
-
-        print(
-            f"Initial intensity window: "
-            f"vmin={self.vmin}, "
-            f"vmax={self.vmax}"
-        )
+        self.vmin = 0
+        self.vmax = 5000
 
         # --------------------------------
         # Display first image
@@ -320,23 +326,25 @@ class ND2Viewer(tk.Tk):
         channel_length
     ):
 
-        # --------------------------------
         # Remove old controls
-        # --------------------------------
 
-        for widget in self.darkframe_frame.winfo_children():
+        for widget in (
+            self.darkframe_frame
+            .winfo_children()
+        ):
             widget.destroy()
 
-        # Reset dictionaries
         self.darkframes = {}
         self.darkframe_enabled = {}
         self.darkframe_buttons = {}
 
         # --------------------------------
-        # Create one row per channel
+        # Create row for EVERY channel
         # --------------------------------
 
-        for channel in range(channel_length):
+        for channel in range(
+            channel_length
+        ):
 
             row = tk.Frame(
                 self.darkframe_frame
@@ -344,10 +352,13 @@ class ND2Viewer(tk.Tk):
 
             row.pack(
                 fill="x",
-                pady=2
+                pady=3
             )
 
+            # --------------------------------
             # Channel label
+            # --------------------------------
+
             channel_label = tk.Label(
                 row,
                 text=f"Channel {channel}:",
@@ -375,7 +386,9 @@ class ND2Viewer(tk.Tk):
                 padx=5
             )
 
-            self.darkframe_buttons[channel] = button
+            self.darkframe_buttons[
+                channel
+            ] = button
 
             # --------------------------------
             # Checkbox
@@ -397,20 +410,34 @@ class ND2Viewer(tk.Tk):
                 padx=5
             )
 
-            self.darkframe_enabled[channel] = enabled
+            self.darkframe_enabled[
+                channel
+            ] = enabled
 
 
     # ====================================
     # UPLOAD DARK FRAME
     # ====================================
 
-    def upload_darkframe(self, channel):
+    def upload_darkframe(
+        self,
+        channel
+    ):
 
         file_path = filedialog.askopenfilename(
-            title=f"Select dark frame for Channel {channel}",
+            title=(
+                f"Select dark frame "
+                f"for Channel {channel}"
+            ),
             filetypes=[
-                ("TIFF files", "*.tif *.tiff"),
-                ("All files", "*.*")
+                (
+                    "TIFF files",
+                    "*.tif *.tiff"
+                ),
+                (
+                    "All files",
+                    "*.*"
+                )
             ]
         )
 
@@ -426,7 +453,8 @@ class ND2Viewer(tk.Tk):
         )
 
         print(
-            f"Dark frame for channel {channel}:"
+            f"Dark frame for channel "
+            f"{channel}:"
         )
 
         print(file_path)
@@ -437,7 +465,7 @@ class ND2Viewer(tk.Tk):
         )
 
         # --------------------------------
-        # Check dark frame dimensions
+        # Check dimensions
         # --------------------------------
 
         data = self.segmentation.data
@@ -447,35 +475,40 @@ class ND2Viewer(tk.Tk):
         if darkframe.shape != expected_shape:
 
             raise ValueError(
-                f"Dark frame shape {darkframe.shape} "
-                f"does not match image shape "
-                f"{expected_shape}"
+                f"Dark frame shape "
+                f"{darkframe.shape} "
+                f"does not match image "
+                f"shape {expected_shape}"
             )
 
         # --------------------------------
-        # Store path
+        # Store dark frame
         # --------------------------------
 
-        self.darkframes[channel] = file_path
+        self.darkframes[
+            channel
+        ] = file_path
 
         # --------------------------------
-        # Update button text
+        # Update button
         # --------------------------------
 
-        self.darkframe_buttons[channel].config(
+        self.darkframe_buttons[
+            channel
+        ].config(
             text="Darkframe loaded"
         )
 
         # --------------------------------
-        # Automatically enable it
+        # Enable checkbox
         # --------------------------------
 
-        self.darkframe_enabled[channel].set(
-            True
-        )
+        self.darkframe_enabled[
+            channel
+        ].set(True)
 
         # --------------------------------
-        # Display corrected image
+        # Update image
         # --------------------------------
 
         self.show_image()
@@ -485,7 +518,10 @@ class ND2Viewer(tk.Tk):
     # UPDATE IMAGE
     # ====================================
 
-    def update_image(self, value=None):
+    def update_image(
+        self,
+        value=None
+    ):
 
         if self.segmentation is None:
             return
@@ -497,14 +533,20 @@ class ND2Viewer(tk.Tk):
     # MOUSE WHEEL
     # ====================================
 
-    def mouse_wheel(self, event):
+    def mouse_wheel(
+        self,
+        event
+    ):
 
         if self.segmentation is None:
             return
 
         if event.delta > 0:
+
             self.scroll_up(event)
+
         else:
+
             self.scroll_down(event)
 
 
@@ -512,7 +554,10 @@ class ND2Viewer(tk.Tk):
     # SCROLL UP
     # ====================================
 
-    def scroll_up(self, event=None):
+    def scroll_up(
+        self,
+        event=None
+    ):
 
         if self.segmentation is None:
             return
@@ -524,7 +569,10 @@ class ND2Viewer(tk.Tk):
     # SCROLL DOWN
     # ====================================
 
-    def scroll_down(self, event=None):
+    def scroll_down(
+        self,
+        event=None
+    ):
 
         if self.segmentation is None:
             return
@@ -536,43 +584,29 @@ class ND2Viewer(tk.Tk):
     # CHANGE VMAX
     # ====================================
 
-    def change_vmax(self, direction):
+    def change_vmax(
+        self,
+        direction
+    ):
 
         # --------------------------------
-        # Get current image
+        # Step size
         # --------------------------------
 
-        image = self.get_current_image()
-
-        image_min = float(
-            image.min()
-        )
-
-        image_max = float(
-            image.max()
-        )
-
-        # --------------------------------
-        # Determine step
-        # --------------------------------
-
-        intensity_range = (
-            image_max - image_min
-        )
-
-        step = max(
-            intensity_range * 0.01,
-            1
-        )
+        # 1% of 5000 = 50
+        step = self.vmax_limit * 0.01
 
         # --------------------------------
         # Change vmax
         # --------------------------------
 
-        self.vmax += direction * step
+        self.vmax += (
+            direction * step
+        )
 
         # --------------------------------
-        # Keep valid
+        # Keep vmax between
+        # vmin and 5000
         # --------------------------------
 
         self.vmax = max(
@@ -581,12 +615,12 @@ class ND2Viewer(tk.Tk):
         )
 
         self.vmax = min(
-            image_max,
+            self.vmax_limit,
             self.vmax
         )
 
         # --------------------------------
-        # Update
+        # Update image
         # --------------------------------
 
         self.show_image()
@@ -600,8 +634,13 @@ class ND2Viewer(tk.Tk):
 
         data = self.segmentation.data
 
-        time_index = self.time_slider.get()
-        channel_index = self.channel_slider.get()
+        time_index = (
+            self.time_slider.get()
+        )
+
+        channel_index = (
+            self.channel_slider.get()
+        )
 
         # --------------------------------
         # Extract image
@@ -624,7 +663,9 @@ class ND2Viewer(tk.Tk):
         ):
 
             darkframe_path = (
-                self.darkframes[channel_index]
+                self.darkframes[
+                    channel_index
+                ]
             )
 
             darkframe = tiff.imread(
@@ -653,11 +694,16 @@ class ND2Viewer(tk.Tk):
         # Current indices
         # --------------------------------
 
-        time_index = self.time_slider.get()
-        channel_index = self.channel_slider.get()
+        time_index = (
+            self.time_slider.get()
+        )
+
+        channel_index = (
+            self.channel_slider.get()
+        )
 
         # --------------------------------
-        # Get image
+        # Get corrected image
         # --------------------------------
 
         image = self.get_current_image()
@@ -698,7 +744,8 @@ class ND2Viewer(tk.Tk):
 
         image = (
             (image - self.vmin)
-            / (self.vmax - self.vmin)
+            /
+            (self.vmax - self.vmin)
             * 255
         )
 
@@ -714,7 +761,10 @@ class ND2Viewer(tk.Tk):
             image
         )
 
-        # Resize while maintaining aspect ratio
+        # --------------------------------
+        # Resize
+        # --------------------------------
+
         pil_image.thumbnail(
             (700, 500)
         )
@@ -723,8 +773,10 @@ class ND2Viewer(tk.Tk):
         # PIL → Tkinter
         # --------------------------------
 
-        self.current_photo = ImageTk.PhotoImage(
-            pil_image
+        self.current_photo = (
+            ImageTk.PhotoImage(
+                pil_image
+            )
         )
 
         self.image_label.config(
@@ -732,10 +784,8 @@ class ND2Viewer(tk.Tk):
         )
 
         # --------------------------------
-        # Window information
+        # Darkframe status
         # --------------------------------
-
-        darkframe_status = ""
 
         if (
             channel_index in self.darkframes
@@ -743,13 +793,20 @@ class ND2Viewer(tk.Tk):
                 channel_index
             ].get()
         ):
+
             darkframe_status = (
                 " | Darkframe: ON"
             )
+
         else:
+
             darkframe_status = (
                 " | Darkframe: OFF"
             )
+
+        # --------------------------------
+        # Window information
+        # --------------------------------
 
         self.window_label.config(
             text=(
@@ -759,4 +816,3 @@ class ND2Viewer(tk.Tk):
                 f"{darkframe_status}"
             )
         )
-
