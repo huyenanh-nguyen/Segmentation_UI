@@ -8,6 +8,15 @@ from scipy.ndimage import distance_transform_edt
 import numpy as np
 import matplotlib.pyplot as plt
 
+nd2_path = "images/20221216 3nM 231-A8_NEMO_TRAF6_1um_38mol 001.nd2"
+nd2_array = nd2.imread(nd2_path)
+dark_400 = tiff.imread("images/20210531 Darkfield 400ms.tif").astype(np.float32)
+dark_60 = tiff.imread("images/20210531 Darkfield 60ms.tif").astype(np.float32)
+
+rfp = np.clip(nd2_array[:,0].astype(np.float32) - dark_400, 0, None) # substracting dark_frame
+gfp = np.clip(nd2_array[:,1].astype(np.float32) - dark_60, 0, None)
+bf = np.clip(nd2_array[:,2].astype(np.float32) - dark_60, 0, None)
+
 class DoubleConv(nn.Module):
 
     def __init__(self, in_channels, out_channels):
