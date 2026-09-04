@@ -1,1 +1,1 @@
-from .segmentation import Segementation
+from .data_processing import Segementation
