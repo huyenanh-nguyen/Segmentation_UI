@@ -1,10 +1,3 @@
-
-
-# Move your model and tensors to the M2 GPU
-model = MySegmentationModel().to(device)
-images = images.to(device)
-
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,6 +7,15 @@ from skimage.feature import peak_local_max
 from scipy.ndimage import distance_transform_edt
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
+import zipfile
+from zipfile import BadZipFile
+import nd2
+
+import numpy as np
+import tifffile as tiff
+from roifile import ImagejRoi
+from skimage.draw import polygon
 
 nd2_path = "images/20221216 3nM 231-A8_NEMO_TRAF6_1um_38mol 001.nd2"
 nd2_array = nd2.imread(nd2_path)
@@ -24,301 +26,359 @@ rfp = np.clip(nd2_array[:,0].astype(np.float32) - dark_400, 0, None) # substract
 gfp = np.clip(nd2_array[:,1].astype(np.float32) - dark_60, 0, None)
 bf = np.clip(nd2_array[:,2].astype(np.float32) - dark_60, 0, None)
 
-class DoubleConv(nn.Module):
+mask = "/Users/huyenanh/Documents/Anhs Uni/Master Thesis/masks/20221216 3nM 231-A8_NEMO_TRAF6_1um_38mol 001"
 
-    def __init__(self, in_channels, out_channels):
 
-        super().__init__()
+input_folder = Path(mask)
+output_folder = Path("/Users/huyenanh/git_repos/Segmentation_UI/cellpose_training/training model/rollballtrain")
+output_folder.mkdir(exist_ok=True)
 
-        self.block = nn.Sequential(
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                3,
-                padding=1
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+height = 600
+width = 600
 
-            nn.Conv2d(
-                out_channels,
-                out_channels,
-                3,
-                padding=1
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
 
-    def forward(self, x):
-        return self.block(x)
+for zip_path in input_folder.glob("*.zip"):
 
-class SmallUNet(nn.Module):
+    print(f"Processing: {zip_path.name}")
 
-    def __init__(self, in_channels=5, out_channels=2):
+    # --- skip invalid ZIP files ---
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            roi_names = [name for name in z.namelist() if name.lower().endswith(".roi")]
+    except BadZipFile:
+        print(f"  Skipping {zip_path.name}: not a valid ZIP file")
+        continue
 
-        super().__init__()
+    print(f"  Found {len(roi_names)} ROIs")
 
-        self.enc1 = DoubleConv(in_channels, 32)
-        self.enc2 = DoubleConv(32, 64)
-        self.enc3 = DoubleConv(64, 128)
+    if len(roi_names) == 0:
+        print("  No ROI files, skipping.")
+        continue
 
-        self.pool = nn.MaxPool2d(2)
+    mask = np.zeros((height, width), dtype=np.uint16)
+    print("Checking:", zip_path)
 
-        self.bottleneck = DoubleConv(128, 256)
 
-        self.up3 = nn.ConvTranspose2d(
-            256, 128, 2, stride=2
-        )
+    with zipfile.ZipFile(zip_path) as z:
+        for label, roi_name in enumerate(roi_names, start=1):
 
-        self.dec3 = DoubleConv(256, 128)
+            with z.open(roi_name) as f:
+                roi = ImagejRoi.frombytes(f.read())
 
-        self.up2 = nn.ConvTranspose2d(
-            128, 64, 2, stride=2
-        )
+            coords = roi.coordinates()
+            if coords is None:
+                print(f"  Skipping {roi_name}")
+                continue
 
-        self.dec2 = DoubleConv(128, 64)
+            x = coords[:, 0]
+            y = coords[:, 1]
 
-        self.up1 = nn.ConvTranspose2d(
-            64, 32, 2, stride=2
-        )
+            rr, cc = polygon(y, x, shape=mask.shape)
+            mask[rr, cc] = label
 
-        self.dec1 = DoubleConv(64, 32)
+    output_mask = output_folder / f"{zip_path.stem}.tif"
+    tiff.imwrite(output_mask, mask)
 
-        self.output = nn.Conv2d(
-            32,
-            out_channels,
-            1
-        )
 
-    def forward(self, x):
+    print(f"  Saved mask: {output_mask}")
+    print(f"  Labels: {np.unique(mask)}")
 
-        e1 = self.enc1(x)
 
-        e2 = self.enc2(
-            self.pool(e1)
-        )
+# class DoubleConv(nn.Module):
 
-        e3 = self.enc3(
-            self.pool(e2)
-        )
+#     def __init__(self, in_channels, out_channels):
 
-        b = self.bottleneck(
-            self.pool(e3)
-        )
+#         super().__init__()
 
-        d3 = self.up3(b)
-        d3 = torch.cat([d3, e3], dim=1)
-        d3 = self.dec3(d3)
+#         self.block = nn.Sequential(
+#             nn.Conv2d(
+#                 in_channels,
+#                 out_channels,
+#                 3,
+#                 padding=1
+#             ),
+#             nn.BatchNorm2d(out_channels),
+#             nn.ReLU(inplace=True),
 
-        d2 = self.up2(d3)
-        d2 = torch.cat([d2, e2], dim=1)
-        d2 = self.dec2(d2)
+#             nn.Conv2d(
+#                 out_channels,
+#                 out_channels,
+#                 3,
+#                 padding=1
+#             ),
+#             nn.BatchNorm2d(out_channels),
+#             nn.ReLU(inplace=True),
+#         )
 
-        d1 = self.up1(d2)
-        d1 = torch.cat([d1, e1], dim=1)
-        d1 = self.dec1(d1)
+#     def forward(self, x):
+#         return self.block(x)
 
-        return self.output(d1)
+# class SmallUNet(nn.Module):
 
+#     def __init__(self, in_channels=5, out_channels=2):
 
-def dice_loss(pred, target, eps=1e-6):
+#         super().__init__()
 
-    pred = torch.sigmoid(pred)
+#         self.enc1 = DoubleConv(in_channels, 32)
+#         self.enc2 = DoubleConv(32, 64)
+#         self.enc3 = DoubleConv(64, 128)
 
-    intersection = (pred * target).sum(dim=(1, 2))
+#         self.pool = nn.MaxPool2d(2)
 
-    union = (
-        pred.sum(dim=(1, 2))
-        + target.sum(dim=(1, 2))
-    )
+#         self.bottleneck = DoubleConv(128, 256)
 
-    dice = (
-        (2 * intersection + eps)
-        / (union + eps)
-    )
+#         self.up3 = nn.ConvTranspose2d(
+#             256, 128, 2, stride=2
+#         )
 
-    return 1 - dice.mean()
+#         self.dec3 = DoubleConv(256, 128)
 
-def loss_function(pred, target):
+#         self.up2 = nn.ConvTranspose2d(
+#             128, 64, 2, stride=2
+#         )
 
-    foreground_bce = F.binary_cross_entropy_with_logits(
-        pred[:, 0],
-        target[:, 0]
-    )
+#         self.dec2 = DoubleConv(128, 64)
 
-    foreground_dice = dice_loss(
-        pred[:, 0],
-        target[:, 0]
-    )
+#         self.up1 = nn.ConvTranspose2d(
+#             64, 32, 2, stride=2
+#         )
 
-    foreground_loss = (
-        foreground_bce
-        + foreground_dice
-    )
+#         self.dec1 = DoubleConv(64, 32)
 
-    # Convert center prediction to 0–1
-    center_pred = torch.sigmoid(pred[:, 1])
+#         self.output = nn.Conv2d(
+#             32,
+#             out_channels,
+#             1
+#         )
 
-    center_loss = F.mse_loss(
-        center_pred,
-        target[:, 1]
-    )
+#     def forward(self, x):
 
-    return foreground_loss + center_loss
+#         e1 = self.enc1(x)
 
-device = (
-    "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
+#         e2 = self.enc2(
+#             self.pool(e1)
+#         )
 
-model = SmallUNet().to(device)
+#         e3 = self.enc3(
+#             self.pool(e2)
+#         )
 
-optimizer = torch.optim.AdamW(
-    model.parameters(),
-    lr=1e-4
-)
+#         b = self.bottleneck(
+#             self.pool(e3)
+#         )
 
-annotation_frames = [
-    10,
-    # 50,
-    100,
-    # 150,
-    200,
-    # 250,
-    300,
-    # 350,
-    400,
-    # 450
-]
+#         d3 = self.up3(b)
+#         d3 = torch.cat([d3, e3], dim=1)
+#         d3 = self.dec3(d3)
 
-dataset = CellDataset(
-    merged_ind_norm,
-    annotation_frames,
-    "cellpose_training/Cellsegmentation/annotations",
-    patch_size=256,
-    samples_per_frame=100
-)
+#         d2 = self.up2(d3)
+#         d2 = torch.cat([d2, e2], dim=1)
+#         d2 = self.dec2(d2)
 
-from torch.utils.data import DataLoader
+#         d1 = self.up1(d2)
+#         d1 = torch.cat([d1, e1], dim=1)
+#         d1 = self.dec1(d1)
 
-loader = DataLoader(
-    dataset,
-    batch_size=2,
-    shuffle=True
-)
+#         return self.output(d1)
 
-for epoch in range(30):
 
-    model.train()
-    epoch_loss = 0
+# def dice_loss(pred, target, eps=1e-6):
 
-    print(f"\nStarting Epoch {epoch + 1}", flush=True)
+#     pred = torch.sigmoid(pred)
 
-    for batch_idx, (x, y) in enumerate(loader):
+#     intersection = (pred * target).sum(dim=(1, 2))
 
-        x = x.to(device)
-        y = y.to(device)
+#     union = (
+#         pred.sum(dim=(1, 2))
+#         + target.sum(dim=(1, 2))
+#     )
 
-        optimizer.zero_grad()
+#     dice = (
+#         (2 * intersection + eps)
+#         / (union + eps)
+#     )
 
-        pred = model(x)
+#     return 1 - dice.mean()
 
-        loss = loss_function(pred, y)
+# def loss_function(pred, target):
 
-        loss.backward()
+#     foreground_bce = F.binary_cross_entropy_with_logits(
+#         pred[:, 0],
+#         target[:, 0]
+#     )
 
-        optimizer.step()
+#     foreground_dice = dice_loss(
+#         pred[:, 0],
+#         target[:, 0]
+#     )
 
-        epoch_loss += loss.item()
+#     foreground_loss = (
+#         foreground_bce
+#         + foreground_dice
+#     )
 
-        print(
-            f"Epoch {epoch + 1}/30 | "
-            f"Batch {batch_idx + 1}/{len(loader)} | "
-            f"Loss: {loss.item():.4f}",
-            end="\r",
-            flush=True
-        )
+#     # Convert center prediction to 0–1
+#     center_pred = torch.sigmoid(pred[:, 1])
 
-    print(
-        f"\nEpoch {epoch + 1}/30 finished | "
-        f"Average loss: {epoch_loss / len(loader):.4f}",
-        flush=True
-    )
+#     center_loss = F.mse_loss(
+#         center_pred,
+#         target[:, 1]
+#     )
 
-model.eval()
+#     return foreground_loss + center_loss
 
-t = 10
+# device = (
+#     "mps"
+#     if torch.backends.mps.is_available()
+#     else "cpu"
+# )
 
-x = get_temporal_window(
-    merged_ind_norm,
-    t,
-    radius=2
-)
+# model = SmallUNet().to(device)
 
-x = torch.from_numpy(
-    x[None]
-).float().to(device)
+# optimizer = torch.optim.AdamW(
+#     model.parameters(),
+#     lr=1e-4
+# )
 
-with torch.no_grad():
+# annotation_frames = [
+#     10,
+#     # 50,
+#     100,
+#     # 150,
+#     200,
+#     # 250,
+#     300,
+#     # 350,
+#     400,
+#     # 450
+# ]
 
-    pred = model(x)
+# dataset = CellDataset(
+#     merged_ind_norm,
+#     annotation_frames,
+#     "cellpose_training/Cellsegmentation/annotations",
+#     patch_size=256,
+#     samples_per_frame=100
+# )
 
-pred = torch.sigmoid(pred)
+# from torch.utils.data import DataLoader
 
-foreground = pred[0, 0].cpu().numpy()
-centers = pred[0, 1].cpu().numpy()
+# loader = DataLoader(
+#     dataset,
+#     batch_size=2,
+#     shuffle=True
+# )
 
-cell_mask = foreground > 0.5
+# for epoch in range(30):
 
-# find centers
-coordinates = peak_local_max(
-    centers,
-    min_distance=20,
-    threshold_abs=0.3
-)
+#     model.train()
+#     epoch_loss = 0
 
-markers = np.zeros_like(
-    cell_mask,
-    dtype=np.int32
-)
+#     print(f"\nStarting Epoch {epoch + 1}", flush=True)
 
-for i, (y, x) in enumerate(coordinates, start=1):
+#     for batch_idx, (x, y) in enumerate(loader):
 
-    markers[y, x] = i
+#         x = x.to(device)
+#         y = y.to(device)
 
-distance = distance_transform_edt(
-    cell_mask
-)
+#         optimizer.zero_grad()
 
-labels = watershed(
-    -distance,
-    markers,
-    mask=cell_mask
-)
+#         pred = model(x)
 
-plt.figure(figsize=(8, 8))
+#         loss = loss_function(pred, y)
 
-# Original image
-plt.imshow(
-    merged_ind_norm[t],
-    cmap="gray"
-)
+#         loss.backward()
 
-# Make background transparent
-labels_masked = np.ma.masked_where(
-    labels == 0,
-    labels
-)
+#         optimizer.step()
 
-# Overlay cells
-plt.imshow(
-    labels_masked,
-    cmap='gist_ncar',
-    alpha=0.5,
-    interpolation="none"
-)
+#         epoch_loss += loss.item()
 
-plt.axis("off")
-plt.show()
+#         print(
+#             f"Epoch {epoch + 1}/30 | "
+#             f"Batch {batch_idx + 1}/{len(loader)} | "
+#             f"Loss: {loss.item():.4f}",
+#             end="\r",
+#             flush=True
+#         )
+
+#     print(
+#         f"\nEpoch {epoch + 1}/30 finished | "
+#         f"Average loss: {epoch_loss / len(loader):.4f}",
+#         flush=True
+#     )
+
+# model.eval()
+
+# t = 10
+
+# x = get_temporal_window(
+#     merged_ind_norm,
+#     t,
+#     radius=2
+# )
+
+# x = torch.from_numpy(
+#     x[None]
+# ).float().to(device)
+
+# with torch.no_grad():
+
+#     pred = model(x)
+
+# pred = torch.sigmoid(pred)
+
+# foreground = pred[0, 0].cpu().numpy()
+# centers = pred[0, 1].cpu().numpy()
+
+# cell_mask = foreground > 0.5
+
+# # find centers
+# coordinates = peak_local_max(
+#     centers,
+#     min_distance=20,
+#     threshold_abs=0.3
+# )
+
+# markers = np.zeros_like(
+#     cell_mask,
+#     dtype=np.int32
+# )
+
+# for i, (y, x) in enumerate(coordinates, start=1):
+
+#     markers[y, x] = i
+
+# distance = distance_transform_edt(
+#     cell_mask
+# )
+
+# labels = watershed(
+#     -distance,
+#     markers,
+#     mask=cell_mask
+# )
+
+# plt.figure(figsize=(8, 8))
+
+# # Original image
+# plt.imshow(
+#     merged_ind_norm[t],
+#     cmap="gray"
+# )
+
+# # Make background transparent
+# labels_masked = np.ma.masked_where(
+#     labels == 0,
+#     labels
+# )
+
+# # Overlay cells
+# plt.imshow(
+#     labels_masked,
+#     cmap='gist_ncar',
+#     alpha=0.5,
+#     interpolation="none"
+# )
+
+# plt.axis("off")
+# plt.show()
