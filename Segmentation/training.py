@@ -1,3 +1,10 @@
+
+
+# Move your model and tensors to the M2 GPU
+model = MySegmentationModel().to(device)
+images = images.to(device)
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
