@@ -25,6 +25,7 @@ from scipy import ndimage as ndi
 from cellpose import models, io
 from training import Trainingpreperation
 
+# [Generating Annotations Masks]
 
 with open("access.txt", "r", encoding="utf-8") as file:
     content = [line.strip() for line in file]
@@ -41,7 +42,13 @@ for folder in range(len(maskpath)):
 output = str(Path.cwd()) + "/cellpose_training"  
 print(output)
 
-for i in range(len(mask_files)):
-    print(mask_files[i][0])
-    converting = [Trainingpreperation().process_rois_to_tiff(str(p), output, 600, 600, str(i)) for p in mask_files[i]]
+# for i in range(len(mask_files)):
+#     print(mask_files[i][0])
+#     converting = [Trainingpreperation().process_rois_to_tiff(str(p), output, 600, 600, str(i)) for p in mask_files[i]]
+print(len([folder for folder in Path(output).iterdir() if folder.is_dir()]))
+
+annotation = [list([folder for folder in Path(output).iterdir() if folder.is_dir()][i].glob("*")) for i in range(len([folder for folder in Path(output).iterdir() if folder.is_dir()]))]
+print(len(annotation))
+
+# training the Cellpose model
 

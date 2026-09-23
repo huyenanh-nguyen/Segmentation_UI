@@ -9,6 +9,7 @@ from roifile import ImagejRoi
 
 import cv2
 import numpy as np
+import albumentations as A
 
 
 def add_roi_to_mask(roi, mask_array, label):
@@ -137,3 +138,92 @@ class Trainingpreperation:
                 print(f"  Error processing {roi_path.name}: {e}")
 
         return None
+
+
+
+    def spatial_augmentation(image: np.ndarray, mask: np.ndarray):
+        """
+        Applies spatial augmentations (Flips, Rotations, Crop/Scale, Elastic Deformations) 
+        identically to both image and mask.
+        
+        Parameters:
+        - image: np.ndarray (H, W, C) or (H, W)
+        - mask:  np.ndarray (H, W) or (H, W, C)
+        - method: str, optional parameter to specify implementation method
+        
+        Returns:
+        - aug_image, aug_mask
+        """
+        
+        # Define spatial transformation pipeline
+        pipeline = A.Compose([
+            # 1. Random Flips
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            
+            # 2. Random Rotations (Full 0-360 degree range)
+            A.RandomRotate90(p=0.5),
+            
+            # 3. Random Cropping & Scaling with Pad
+            # Zooms into random patches, keeping output size consistent
+            A.RandomResizedCrop(
+                size=(image.shape[0], image.shape[1]), 
+                scale=(0.8, 1.0), 
+                ratio=(0.9, 1.1), 
+                p=0.5
+            ),
+            
+            # 4. Elastic Deformation
+            # Distorts shapes organically; essential for cell structures
+            A.ElasticTransform(
+                alpha=1, 
+                sigma=50, 
+                alpha_affine=50, 
+                p=0.5
+            )
+        ])
+        
+        transformed = pipeline(image=image, mask=mask)
+        return transformed['image'], transformed['mask']
+
+
+    def pixelaugmentation(image: np.ndarray) -> np.ndarray:
+        """
+        Applies pixel-level augmentations (lighting, focus, noise, contrast) to an image.
+        Masks are intentionally excluded because pixel values do not affect spatial locations.
+        
+        Parameters:
+        - image: np.ndarray (H, W, C) or (H, W)
+        - method: str, optional parameter to specify implementation method
+        
+        Returns:
+        - aug_image: np.ndarray
+        """
+
+        pipeline = A.Compose([
+            # 1. Random Brightness & Contrast Adjustments
+            # Simulates variance in illumination or staining intensity
+            A.RandomBrightnessContrast(
+                brightness_limit=0.2, 
+                contrast_limit=0.2, 
+                p=0.5
+            ),
+            
+            # 2. Focus Adjustments (Blur & Sharpen)
+            # Simulates focal plane variations or slight camera blur
+            A.OneOf([
+                A.GaussianBlur(blur_limit=(3, 5), p=1.0),
+                A.Sharpen(alpha=(0.2, 0.5), lightness=(0.5, 1.0), p=1.0),
+            ], p=0.4),
+            
+            # 3. Sensor Noise Injection
+            # Models low-light / fluorescence sensor noise
+            A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+            
+            # 4. Gamma Correction
+            # Adjusts non-linear lighting dynamics across the frame
+            A.RandomGamma(gamma_limit=(80, 120), p=0.3)
+        ])
+        
+        transformed = pipeline(image=image)
+        return transformed['image']
