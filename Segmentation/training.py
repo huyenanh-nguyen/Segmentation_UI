@@ -6,7 +6,8 @@ import tifffile as tiff
 from read_roi import read_roi_zip, read_roi_file
 import ijroi
 from roifile import ImagejRoi
-
+import math
+import random
 import cv2
 import numpy as np
 import albumentations as A
@@ -141,7 +142,7 @@ class Trainingpreperation:
 
 
 
-    def spatial_augmentation(image: np.ndarray, mask: np.ndarray):
+    def spatial_augmentation(self, image: np.ndarray, mask: np.ndarray):
         """
         Applies spatial augmentations (Flips, Rotations, Crop/Scale, Elastic Deformations) 
         identically to both image and mask.
@@ -187,7 +188,7 @@ class Trainingpreperation:
         return transformed['image'], transformed['mask']
 
 
-    def pixelaugmentation(image: np.ndarray) -> np.ndarray:
+    def pixelaugmentation(self, image: np.ndarray) -> np.ndarray:
         """
         Applies pixel-level augmentations (lighting, focus, noise, contrast) to an image.
         Masks are intentionally excluded because pixel values do not affect spatial locations.
@@ -227,3 +228,29 @@ class Trainingpreperation:
         
         transformed = pipeline(image=image)
         return transformed['image']
+
+    def split_frames_by_key(
+            self, data_dict, train_ratio=0.70, val_ratio=0.15, seed=42
+        ):
+        train_split = {}
+        val_split = {}
+        test_split = {}
+
+        # Set random seed for reproducibility
+        if seed is not None:
+            random.seed(seed)
+
+        for key, frames in data_dict.items():
+            # Create a copy and shuffle it randomly
+            shuffled_frames = list(frames)
+            random.shuffle(shuffled_frames)
+
+            n = len(shuffled_frames)
+            train_end = math.floor(n * train_ratio)
+            val_end = train_end + math.floor(n * val_ratio)
+
+            train_split[key] = shuffled_frames[:train_end]
+            val_split[key] = shuffled_frames[train_end:val_end]
+            test_split[key] = shuffled_frames[val_end:]
+
+        return train_split, val_split, test_split
