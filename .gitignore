@@ -9,6 +9,8 @@ __pycache__/
 /images
 /cellpose_training
 /cellpose_models
+/Data
+/masks
 
 # Distribution / packaging
 .Python

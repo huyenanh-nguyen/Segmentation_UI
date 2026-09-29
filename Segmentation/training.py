@@ -4,7 +4,6 @@ from zipfile import BadZipFile
 import numpy as np
 import tifffile as tiff
 from read_roi import read_roi_zip, read_roi_file
-import ijroi
 from roifile import ImagejRoi
 import math
 import random

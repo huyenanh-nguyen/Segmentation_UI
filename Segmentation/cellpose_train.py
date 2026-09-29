@@ -5,8 +5,6 @@ import re
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.ndimage import label
-from skimage.segmentation import watershed
-from skimage.feature import peak_local_max
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -17,7 +15,6 @@ from torch.utils.data import DataLoader
 import numpy as np
 import tifffile as tiff
 from roifile import ImagejRoi
-from skimage.draw import polygon
 from scipy.ndimage import (
     distance_transform_edt,
     center_of_mass
@@ -34,13 +31,13 @@ with open("access.txt", "r", encoding="utf-8") as file:
     content = [line.strip() for line in file]
 
 data = {}
-datapath = list(Path(content[1]).glob("*.nd2"))
+datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
 
 for _, file in enumerate(datapath):
     data[str(file).split("/")[-1].split(".nd2")[0]] = nd2.imread(file).astype(np.float32) # converting to array
 
 
-maskpath = [folder for folder in Path(content[2]).iterdir() if folder.is_dir()]
+maskpath = [folder for folder in Path(str(Path.cwd()) + content[2]).iterdir() if folder.is_dir()]
 
 mask_files = {}
 
@@ -91,16 +88,25 @@ for index, folder in enumerate(Path(output).iterdir()):
 
 train_frames, val_frames, test_frames = Trainingpreperation().split_frames_by_key(frameindex)
 
-print(test_frames)
 
 
-if torch.backends.mps.is_available():
+
+# Check for CUDA (NVIDIA GPU on Raven), then MPS (Apple Silicon), then CPU
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    use_gpu = True
+    print(f"NVIDIA GPU (CUDA) is active: {torch.cuda.get_device_name(0)}")
+elif torch.backends.mps.is_available():
     device = torch.device("mps")
+    use_gpu = True
     print("Apple Silicon GPU (MPS) is active.")
 else:
     device = torch.device("cpu")
-    print("MPS not available; defaulting to CPU.")
+    use_gpu = False
+    print("GPU not available; defaulting to CPU.")
 
+# Initialize Cellpose using the detected setup
+model = models.CellposeModel(gpu=use_gpu, device=device, model_type="cyto2")
 
 
 
@@ -153,16 +159,6 @@ print(f"Total validation samples: {len(val_images)}")
 print(f"Total test samples: {len(test_images)}")
 
 
-
-
-# Device check
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-    print("Apple Silicon GPU (MPS) is active.")
-else:
-    device = torch.device("cpu")
-    print("MPS not available; defaulting to CPU.")
-
 # 1. Initialize Cellpose model
 # Choose base model type, e.g., 'cyto3', 'cyto2', or 'nuclei'
 model = models.CellposeModel(gpu=True, device=device, model_type="cyto2")
@@ -179,8 +175,8 @@ model_path = train.train_seg(
     train_labels=train_masks,
     test_data=val_images,
     test_labels=val_masks,
-    batch_size=2,  # M2 Pro 16GB/32GB RAM handles batch size 8-16 easily
-    n_epochs=100,  # Recommended 100-500 depending on dataset size
+    batch_size=2,  
+    n_epochs=100,  
     learning_rate=0.1,
     weight_decay=0.0001,
     save_path= str(Path.cwd()) + "/cellpose_models",
@@ -188,9 +184,9 @@ model_path = train.train_seg(
 
 print(f"Training completed successfully! Saved model path: {model_path}")
 
+#hmm maybe accessing model differently.. 
 
-
-# Run prediction on test images
+# # Run prediction on test images
 masks_pred, flows, styles = model.eval(test_images, channels=channels)
 
 # Evaluate average precision at IoU thresholds 0.5 to 0.95
