@@ -1,164 +1,122 @@
-import os
-import torch
+
 import numpy as np
 import matplotlib.pyplot as plt
-import tifffile as tiff
-import nd2
-import re 
+from cellpose import metrics, models
 from pathlib import Path
-from cellpose import models, metrics
-from training import Trainingpreperation  # Your data preparation class
+import re
+import nd2
+import numpy as np
+import tifffile as tiff
+import torch
 
-# Set environment fallback if needed
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
 
-# -------------------------------------------------------------
-# 1. CONFIGURATION & PATHS
-# -------------------------------------------------------------
-MODEL_PATH = "/u/hanguy/Segmentation_UI/cellpose_models/models/cellpose_1790687402.9245734"  # Path to saved model file
-ACCESS_FILE = "access.txt"
 
-# -------------------------------------------------------------
-# 2. DEVICE SETUP
-# -------------------------------------------------------------
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-    use_gpu = True
-    print(f"CUDA active: {torch.cuda.get_device_name(0)}")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-    use_gpu = True
-    print("Apple Silicon GPU (MPS) active.")
-else:
-    device = torch.device("cpu")
-    use_gpu = False
-    print("Defaulting to CPU.")
-
-# -------------------------------------------------------------
-# 3. LOAD TEST DATA
-# -------------------------------------------------------------
-with open(ACCESS_FILE, "r", encoding="utf-8") as file:
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
+with open("access.txt", "r", encoding="utf-8") as file:
     content = [line.strip() for line in file]
 
 data = {}
 datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
-for file in datapath:
-    data[str(file).split("/")[-1].split(".nd2")[0]] = nd2.imread(file).astype(np.float32)
+for _, file in enumerate(datapath):
+    data[str(file).split("/")[-1].split(".nd2")[0]] = nd2.imread(file).astype(np.float32) # converting to array
 
-output_folder = Path.cwd() / "cellpose_training"
-annotation = {}
+
+maskpath = [folder for folder in Path(str(Path.cwd()) + content[2]).iterdir() if folder.is_dir()]
+
+mask_files = {}
+
+for index, folder in enumerate(maskpath):
+    # for _, file in enumerate(maskpath[folder].glob("")):
+    mask_files[str(folder).split("/")[-1]] = list(maskpath[index].glob("*"))
+
+output = str(Path.cwd()) + "/cellpose_training"  
+
+annotation = {} # where the mask is
 frameindex = {}
 
-for folder in output_folder.iterdir():
+for index, folder in enumerate(Path(output).iterdir()):
     if folder.is_dir():
         listig = list(folder.glob("*"))
         listholder = {}
         placeholder = []
         for i in listig:
-            frame_num = int(re.findall(r"(\d+)\.tif$", str(i).split("/")[-1])[0])
-            listholder[frame_num] = tiff.imread(i)
-            placeholder.append(frame_num)
+            listholder[int(re.findall(r"(\d+)\.tif$", str(i).split("/")[-1])[0])] = tiff.imread(i)
+            placeholder.append(int(re.findall(r"(\d+)\.tif$", str(i).split("/")[-1])[0]))
 
-        key = str(folder).split("/")[-1]
-        annotation[key] = listholder
-        frameindex[key] = sorted(placeholder)
+        annotation[str(folder).split("/")[-1]] = listholder # annotation as arrays
+        frameindex[str(folder).split("/")[-1]] = sorted(placeholder)
 
-# Retrieve only the test frames split
-prep = Trainingpreperation()
-_, _, test_frames = prep.split_frames_by_key(frameindex)
 
-test_images, test_masks = [], []
-for key, frames in test_frames.items():
-    for frame_idx in frames:
-        test_images.append(data[key][:, 0][frame_idx])
-        test_masks.append(annotation[key][frame_idx])
 
-print(f"Loaded {len(test_images)} test samples.")
+frames_to_test = [2, 189, 389]
+channels = [0, 0]  # Grayscale / single channel
 
-# -------------------------------------------------------------
-# 4. LOAD TRAINED MODEL
-# -------------------------------------------------------------
-# Pass model_path to preload your custom weights into CellposeModel
+MODEL_PATH = "/u/hanguy/Segmentation_UI/cellpose_models/models/cellpose_1790687402.9245734"
+
+# Select the available device
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    use_gpu = True
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    use_gpu = True
+else:
+    device = torch.device("cpu")
+    use_gpu = False
+
+print("Device:", device)
+
+# Load your trained Cellpose model
 model = models.CellposeModel(
-    gpu=use_gpu, 
-    device=device, 
+    gpu=use_gpu,
+    device=device,
     pretrained_model=MODEL_PATH
 )
 
-# -------------------------------------------------------------
-# 5. INFERENCE & EVALUATION
-# -------------------------------------------------------------
-channels = [0, 0]  # [0, 0] for single-channel/grayscale
-masks_pred, flows, styles = model.eval(test_images, channels=channels)
+print("Model class:", type(model))
+print("Model network:", type(model.net))
+print("GPU enabled:", use_gpu)
+print("Device:", device)
 
-# Define IoU thresholds
-iou_thresholds = np.arange(0.5, 1.0, 0.05)
-
-# Calculate precision metrics
-ap, tp, fp, fn = metrics.average_precision(
-    test_masks, masks_pred, threshold=iou_thresholds
+model = models.CellposeModel(
+    gpu=False,
+    model_type="livecell"
 )
 
-mean_ap = ap.mean(axis=0)
-total_tp = tp.sum(axis=0)
-total_fp = fp.sum(axis=0)
-total_fn = fn.sum(axis=0)
 
-precision = total_tp / (total_tp + total_fp + 1e-8)
-recall = total_tp / (total_tp + total_fn + 1e-8)
+"""
+masks : list of 2D arrays or single 3D array
+Labelled image, where 0=no masks; 1,2,...=mask labels;
 
-# -------------------------------------------------------------
-# 6. PLOTTING RESULTS
-# -------------------------------------------------------------
-def plot_prediction_samples(images, true_masks, pred_masks, num_samples=3):
-    fig, axes = plt.subplots(num_samples, 3, figsize=(12, 4 * num_samples))
-    for i in range(min(num_samples, len(images))):
-        axes[i, 0].imshow(images[i], cmap="gray")
-        axes[i, 0].set_title(f"Sample {i+1}: Image")
-        axes[i, 0].axis("off")
+flows : list of lists 2D arrays or list of 3D arrays
+flows[k][0] = XY flow in HSV 0-255; flows[k][1] = XY flows at each pixel; flows[k][2] = cell probability (if > cellprob_threshold, pixel used for dynamics); flows[k][3] = final pixel locations after Euler integration;
 
-        axes[i, 1].imshow(true_masks[i], cmap="nipy_spectral")
-        axes[i, 1].set_title(f"Sample {i+1}: Ground Truth")
-        axes[i, 1].axis("off")
+styles : list of 1D arrays of length 256 or single 1D array
+Style vector containing only zeros. Retained for compaibility with CP3.
+"""
 
-        axes[i, 2].imshow(pred_masks[i], cmap="nipy_spectral")
-        axes[i, 2].set_title(f"Sample {i+1}: Prediction")
-        axes[i, 2].axis("off")
 
-    plt.tight_layout()
-    plt.show()
+for keys in data.keys():
+    for index in frames_to_test:
+        masks, flows, styles = model.eval(data[keys][index], channels = channels)
+        labels_masked = np.ma.masked_where(masks == 0, masks)
+        fig, ax = plt.subplots(figsize=(8, 8))
 
-plot_prediction_samples(test_images, test_masks, masks_pred, num_samples=3)
+        ax.imshow(data[keys][index, 0], cmap="inferno")
+        ax.imshow(
+            labels_masked,
+            cmap="nipy_spectral",
+            interpolation="nearest",
+            alpha=0.4
+        )
 
-# Dashboard plot
-fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        ax.set_title("Cellpose segmentation")
+        ax.axis("off")
 
-axes[0].plot(iou_thresholds, mean_ap, marker="o", color="#2b5c8f", linewidth=2, label="mAP")
-axes[0].set_xlabel("IoU Threshold")
-axes[0].set_ylabel("Mean Average Precision (mAP)")
-axes[0].set_title("Model Precision across IoU Thresholds")
-axes[0].set_ylim([0, 1.05])
-axes[0].grid(True, linestyle="--", alpha=0.6)
-axes[0].legend()
+        plt.tight_layout()
+        fig.savefig("/u/hanguy/Segmentation_UI/result/cellpose" + f"{keys}_index{index}.png", dpi=300, bbox_inches="tight")
 
-threshold_indices = [0, 5]  # IoU 0.50 and 0.75
-labels = [f"IoU {iou_thresholds[i]:.2f}" for i in threshold_indices]
-x = np.arange(len(labels))
-width = 0.25
+        plt.show()
 
-axes[1].bar(x - width, [total_tp[i] for i in threshold_indices], width, label="True Positives", color="#2ca02c")
-axes[1].bar(x, [total_fp[i] for i in threshold_indices], width, label="False Positives", color="#d62728")
-axes[1].bar(x + width, [total_fn[i] for i in threshold_indices], width, label="False Negatives", color="#ff7f0e")
-axes[1].set_ylabel("Count")
-axes[1].set_title("Detection Breakdown (TP, FP, FN)")
-axes[1].set_xticks(x)
-axes[1].set_xticklabels(labels)
-axes[1].legend()
-
-plt.tight_layout()
-plt.show()
-
-print(f"{'IoU Threshold':<15} | {'mAP':<8} | {'Precision':<10} | {'Recall':<8}")
-print("-" * 50)
-for i, thresh in enumerate(iou_thresholds):
-    print(f"{thresh:<15.2f} | {mean_ap[i]:<8.3f} | {precision[i]:<10.3f} | {recall[i]:<8.3f}")
