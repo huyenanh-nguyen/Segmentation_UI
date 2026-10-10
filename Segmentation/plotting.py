@@ -53,7 +53,7 @@ for index, folder in enumerate(Path(output).iterdir()):
 frames_to_test = [0, 160, 220, 320]
 channels = [0, 0]  # Grayscale / single channel
 
-MODEL_PATH = "/u/hanguy/Segmentation_UI/cellpose_models/models/cellpose_1791574668.9789433"
+MODEL_PATH = str(Path.cwd()) + "/cellpose_models/models/cellpose_1791574668.9789433"
 
 # Select the available device
 if torch.cuda.is_available():
@@ -104,7 +104,7 @@ for keys in data.keys():
         labels_masked = np.ma.masked_where(masks == 0, masks)
         fig, ax = plt.subplots(figsize=(8, 8))
 
-        ax.imshow(data[keys][index, 0], cmap="inferno")
+        ax.imshow(data[keys][index, 0], cmap="inferno", vmax = data[keys][index, 0].max()*0.8)
         ax.imshow(
             labels_masked,
             cmap="nipy_spectral",
@@ -116,7 +116,7 @@ for keys in data.keys():
         ax.axis("off")
 
         plt.tight_layout()
-        fig.savefig("/u/hanguy/Segmentation_UI/result/cellpose" + f"{keys}_index{index}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(str(Path.cwd()) + "/result/cellpose" + f"{keys}_index{index}.png", dpi=300, bbox_inches="tight")
 
         plt.show()
 
