@@ -50,10 +50,10 @@ for index, folder in enumerate(Path(output).iterdir()):
 
 
 
-frames_to_test = [2, 189, 389]
+frames_to_test = [0, 160, 220, 320]
 channels = [0, 0]  # Grayscale / single channel
 
-MODEL_PATH = "/u/hanguy/Segmentation_UI/cellpose_models/models/cellpose_1790687402.9245734"
+MODEL_PATH = "/u/hanguy/Segmentation_UI/cellpose_models/models/cellpose_1791574668.9789433"
 
 # Select the available device
 if torch.cuda.is_available():

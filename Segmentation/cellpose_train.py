@@ -32,7 +32,7 @@ with open("access.txt", "r", encoding="utf-8") as file:
 
 data = {}
 datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
-darkminus = nd2.imread(Path("/u/hanguy/Segmentation_UI/Data/20210531 Darkfield 60ms.tif")).astype(np.float32)
+darkminus = tiff.imread("/u/hanguy/Segmentation_UI/Data/20210531 Darkfield 60ms.tif").astype(np.float32)
 
 for _, file in enumerate(datapath):
     raw = nd2.imread(file).astype(np.float32)
@@ -143,16 +143,20 @@ for key, frames in train_frames.items():
 # -------------------------------------------------------------
 # 2. PROCESS VALIDATION SET (UNTOUCHED / NO AUGMENTATION)
 # -------------------------------------------------------------
+index_va= []
 for key, frames in val_frames.items():
     for frame_idx in frames:
+        index_va.append(frame_idx)
         val_images.append(data[key][frame_idx])
         val_masks.append(annotation[key][frame_idx])
 
 # -------------------------------------------------------------
 # 3. PROCESS TEST SET (UNTOUCHED / NO AUGMENTATION)
 # -------------------------------------------------------------
+index = []
 for key, frames in test_frames.items():
     for frame_idx in frames:
+        index.append(frame_idx)
         test_images.append(data[key][frame_idx])
         test_masks.append(annotation[key][frame_idx])
 
