@@ -18,10 +18,15 @@ with open("access.txt", "r", encoding="utf-8") as file:
     content = [line.strip() for line in file]
 
 data = {}
-datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
-for _, file in enumerate(datapath):
-    data[str(file).split("/")[-1].split(".nd2")[0]] = nd2.imread(file).astype(np.float32) # converting to array
 
+datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
+darkminus = tiff.imread(str(Path.cwd()) + "/Data/20210531 Darkfield 60ms.tif").astype(np.float32)
+
+for _, file in enumerate(datapath):
+    raw = nd2.imread(file).astype(np.float32)
+    new_img = np.clip(raw[:,0] - darkminus, 0, None)
+    data[str(file).split("/")[-1].split(".nd2")[0]] = new_img
+     # converting to array
 
 maskpath = [folder for folder in Path(str(Path.cwd()) + content[2]).iterdir() if folder.is_dir()]
 
@@ -53,7 +58,7 @@ for index, folder in enumerate(Path(output).iterdir()):
 frames_to_test = [0, 160, 220, 320]
 channels = [0, 0]  # Grayscale / single channel
 
-MODEL_PATH = str(Path.cwd()) + "/cellpose_models/models/cellpose_1791574668.9789433"
+MODEL_PATH = str(Path.cwd()) + "/cellpose_models/models/cellpose_cyto3_500Epoche_1791718660.745401"
 
 # Select the available device
 if torch.cuda.is_available():
@@ -104,7 +109,8 @@ for keys in data.keys():
         labels_masked = np.ma.masked_where(masks == 0, masks)
         fig, ax = plt.subplots(figsize=(8, 8))
 
-        ax.imshow(data[keys][index, 0], cmap="inferno", vmax = data[keys][index, 0].max()*0.8)
+        ax.imshow(data[keys][index], cmap="inferno",vmin = 0,  vmax = data[keys][index].max() * 0.8)
+
         ax.imshow(
             labels_masked,
             cmap="nipy_spectral",
@@ -116,7 +122,7 @@ for keys in data.keys():
         ax.axis("off")
 
         plt.tight_layout()
-        fig.savefig(str(Path.cwd()) + "/result/cellpose" + f"{keys}_index{index}.png", dpi=300, bbox_inches="tight")
+        fig.savefig(str(Path.cwd()) + "/result/cellposeSAM_" + f"500Epoche_{keys}_index{index}.png", dpi=300, bbox_inches="tight")
 
         plt.show()
 

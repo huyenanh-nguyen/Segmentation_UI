@@ -167,7 +167,7 @@ print(f"Total test samples: {len(test_images)}")
 
 # 1. Initialize Cellpose model
 # Choose base model type, e.g., 'cyto3', 'cyto2', or 'nuclei'
-model = models.CellposeModel(gpu=True, device=device, model_type="cyto2")
+model = models.CellposeModel(gpu=True, device=device, model_type="cyto3")
 
 # 2. Set channel configurations
 # For single-channel / grayscale images, use [0, 0]
