@@ -22,8 +22,7 @@ from scipy.ndimage import (
 from scipy import ndimage as ndi
 from cellpose import models, io, train, metrics
 from training import Trainingpreperation
-import random
-
+from anhs_watershed import Background
 
 # [Generating Annotations Masks]_________________
 
@@ -32,11 +31,12 @@ with open("access.txt", "r", encoding="utf-8") as file:
 
 data = {}
 datapath = list(Path(str(Path.cwd()) + content[1]).glob("*.nd2"))
-darkminus = tiff.imread("/u/hanguy/Segmentation_UI/Data/20210531 Darkfield 60ms.tif").astype(np.float32)
+
 
 for _, file in enumerate(datapath):
     raw = nd2.imread(file).astype(np.float32)
-    new_img = np.clip(raw[:,0] - darkminus, 0, None)
+    new_img = Background().darkfield_assignment(file)[0]["raw_minus_dark"]
+    
     data[str(file).split("/")[-1].split(".nd2")[0]] = new_img
      # converting to array
 
@@ -182,7 +182,7 @@ model_path, train_losses, test_losses = train.train_seg(
     test_data=val_images,
     test_labels=val_masks,
     batch_size=2,  
-    n_epochs=500,  
+    n_epochs=300,  
     learning_rate=0.1,
     weight_decay=0.0001,
     save_path= str(Path.cwd()) + "/cellpose_models",
