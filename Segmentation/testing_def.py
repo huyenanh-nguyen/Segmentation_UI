@@ -19,7 +19,7 @@ for _, file in enumerate(datapath):
         nd2_path= str(file),
         channel_idx=0,
         median_filter_size=21,
-        cell_diameter=25,
+        cell_diameter=50,
         output_folder= "Output",
-        output_name=f"{name}_channel_0_mask",
+        output_name=f"{name}_channel_0_mask_50um",
     )
