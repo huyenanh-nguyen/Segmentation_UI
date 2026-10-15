@@ -28,6 +28,8 @@ for _, file in enumerate(datapath):
     data[str(file).split("/")[-1].split(".nd2")[0]] = new_img
      # converting to array
 
+
+
 maskpath = [folder for folder in Path(str(Path.cwd()) + content[2]).iterdir() if folder.is_dir()]
 
 mask_files = {}
