@@ -224,9 +224,8 @@ class Background:
 
         # Same principal operators as the original code: contrast multiplication,
         # broad blur, median filter and subtraction of the two images.
-        contrast_img = np.clip(frame_uint8.astype(np.uint16) * 10, 0, 255).astype(
-            np.uint8
-        )
+        # contrast_img = # Instead of multiplying by 10, keep the normalized image or gently scale it:
+        contrast_img = frame_uint8  # or np.clip(frame_uint8.astype(np.float32) * 1.5, 0, 255).astype(np.uint8)
 
         blur_size = cell_diameter * 3
         blur_img = cv.blur(contrast_img, (blur_size, blur_size))
@@ -305,22 +304,14 @@ class Background:
         output_folder: str | Path,
         output_name: str,
         tiff_compression_level: str | None = "zlib",
-        ) -> Path:
-        """Create and save a stacked watershed label mask for one ND2 channel.
+    ) -> Path:
+        """Create and save a time-projected watershed label mask for one ND2 channel.
 
-        Args:
-            nd2_path: Input ND2 file.
-            channel_idx: Index of the ND2 channel to segment, e.g. 0.
-            median_filter_size: 2D median background filter size in pixels.
-            cell_diameter: Approximate cell diameter in pixels.
-            output_folder: Destination folder; created if it does not exist.
-            output_name: Desired output filename, with or without ``.tif``.
-            tiff_compression_level: TIFF compression, for example ``"zlib"``.
-
-        Returns:
-            Path of the TIFF label stack with shape (T, Y, X). Background pixels
-            have label 0; individual cells have positive labels.
+        Computes max and mean projections across the time axis, matching the 
+        original project's segmentation pipeline.
         """
+        import math
+
         output_directory = Path(output_folder)
         output_directory.mkdir(parents=True, exist_ok=True)
 
@@ -330,6 +321,7 @@ class Background:
         )
         output_path = output_directory / output_filename
 
+        # Load the darkfield-corrected and median-filtered stack: shape (T, Y, X)
         image_stack = self.median_blur_remove(
             nd2_path=nd2_path,
             channel_idx=channel_idx,
@@ -342,34 +334,88 @@ class Background:
                 f"{image_stack.shape}."
             )
 
-        segmentation_stack = np.zeros(image_stack.shape, dtype=np.uint16)
-        number_of_frames = image_stack.shape[0]
+        # 1. Max pixel intensity projection (used for markers)
+        img_max = np.max(image_stack, axis=0)
+        img_max = img_max - img_max.min()
+        if img_max.max() > 0:
+            img_max = img_max / img_max.max() * 255
+        img_max = img_max.astype(np.uint8)
 
-        for frame_index in range(number_of_frames):
-            segmentation_stack[frame_index] = self._segment_frame(
-                image_stack[frame_index],
-                cell_diameter=cell_diameter,
-            )
+        # 2. Average pixel intensity projection (used for foreground mask)
+        img = np.mean(image_stack, axis=0)
+        img = np.round(img)
+        img = img - img.min()
+        if img.max() > 0:
+            img = img / img.max() * 255
+        img = img.astype(np.uint8)
 
-            if (frame_index + 1) % 25 == 0 or frame_index + 1 == number_of_frames:
-                print(f"Segmented {frame_index + 1}/{number_of_frames} frames")
+        # --- Create Mask (Background vs Foreground) ---
+        contrast_img = img.astype(numpy_dtype := np.uint16) if 'numpy_dtype' else img.astype(np.uint16)
+        contrast_img = contrast_img * 10
+        contrast_img = np.clip(contrast_img, 0, 255)
+        contrast_img = contrast_img - contrast_img.min()
+        if contrast_img.max() > 0:
+            contrast_img = contrast_img / contrast_img.max() * 255
+        contrast_img = contrast_img.astype(np.uint8)
+
+        blur_size = cell_diameter * 3
+        blur_img = cv.blur(contrast_img, (blur_size, blur_size))
+        blur_img = (blur_img * 0.5).astype(np.uint8)
+        
+        median_img = cv.medianBlur(contrast_img, ksize=cell_diameter)
+        subtracted_img = cv.subtract(median_img, blur_img)
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (blur_size, blur_size))
+        dilated_img = cv.dilate(subtracted_img, kernel, iterations=1)
+
+        mean_val = np.mean(dilated_img)
+        if mean_val > 1:
+            gamma = math.log(255) / math.log(mean_val)
+        else:
+            gamma = 1.0
+        gamma_img = np.power(dilated_img.astype(np.float32), gamma).clip(0, 255).astype(np.uint8)
+
+        _, mask_img = cv.threshold(gamma_img, 1, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        mask_img_color = cv.cvtColor(mask_img, cv.COLOR_GRAY2BGR)
+
+        # --- Create Marker ---
+        contrast_img_max = img_max.astype(np.uint16) * 6.67
+        contrast_img_max = np.clip(contrast_img_max, 0, 255)
+        contrast_img_max = contrast_img_max - contrast_img_max.min()
+        if contrast_img_max.max() > 0:
+            contrast_img_max = contrast_img_max / contrast_img_max.max() * 255
+        contrast_img_max = contrast_img_max.astype(np.uint8)
+
+        blur_img_max = cv.blur(contrast_img_max, (blur_size, blur_size))
+        median_img_max = cv.medianBlur(contrast_img_max, ksize=cell_diameter)
+        subtracted_max = cv.subtract(median_img_max, blur_img_max)
+        
+        gamma_max = np.power(subtracted_max.astype(np.float32), 1.5).clip(0, 255).astype(np.uint8)
+        median_img_2 = cv.medianBlur(gamma_max, ksize=cell_diameter)
+
+        _, marker_img = cv.connectedComponents(median_img_2)
+
+        # --- Watershed Segmentation ---
+        final_segmentation = cv.watershed(mask_img_color, marker_img)
+        final_segmentation = marker_img * (mask_img.astype(np.float32) / 255)
+        final_segmentation = final_segmentation.clip(0, 254).astype(np.uint16)
 
         tiff.imwrite(
             output_path,
-            segmentation_stack,
+            final_segmentation,
             bigtiff=True,
             compression=tiff_compression_level,
             photometric="minisblack",
             metadata={
-                "axes": "TYX",
+                "axes": "YX",
                 "description": (
-                    "Frame-wise watershed segmentation mask. "
+                    "Time-projected watershed segmentation mask. "
                     "0=background; positive values=cell labels."
                 ),
             },
         )
 
-        print(f"Segmentation TIFF stack saved to: {output_path}")
+        print(f"Time-projected segmentation TIFF saved to: {output_path}")
         return output_path
 
     def make_area_list(

@@ -26,3 +26,4 @@ source /u/hanguy/Segmentation_UI/env/bin/activate
 # 3. Run training script using full path
 
 python /u/hanguy/Segmentation_UI/Segmentation/plotting.py
+# python /u/hanguy/Segmentation_UI/unet_stack.py

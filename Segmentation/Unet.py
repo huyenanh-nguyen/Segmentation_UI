@@ -182,9 +182,13 @@ class SegmentationDataset(Dataset):
 
         # Per-frame robust scaling makes darkfield-corrected intensities stable.
         low, high = np.percentile(image, (1, 99))
-        image = np.zeros_like(image) if high <= low else np.clip((image - low) / (high - low), 0, 1)
-        return torch.from_numpy(np.ascontiguousarray(image[None])), torch.from_numpy(np.ascontiguousarray(mask[None]))
-
+        image = np.zeros_like(image, dtype=np.float32) if high <= low else np.clip((image - low) / (high - low), 0, 1).astype(np.float32)
+        
+        # Explicitly ensure float32 tensors
+        img_tensor = torch.from_numpy(np.ascontiguousarray(image[None])).float()
+        mask_tensor = torch.from_numpy(np.ascontiguousarray(mask[None])).float()
+        
+        return img_tensor, mask_tensor
 
 class DoubleConv(nn.Module):
     def __init__(self, channels_in, channels_out):
